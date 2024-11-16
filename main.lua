@@ -8,8 +8,11 @@ local getHeight = love.graphics.getHeight
 local getWidth = love.graphics.getWidth
 local keyDown = love.keyboard.isDown
 local levelsData = require("levelData")
+local userLevelData = require("userLevelData")
 local UI = require "UI"
 local mainMenuBackground = love.graphics.newImage("mainMenuBackground.png")
+local currentUserLevel = 1
+local currentObject = "floor"
 local world
 local background
 local floors = {}
@@ -80,8 +83,8 @@ function mousePos()
     return x, y
 end
 
-function initWorld(levelIndex)
-    if levelsData[levelIndex] then
+function initWorld(isUserLevel, levelIndex)
+    if isUserLevel == false and #levelsData <= levelIndex then
         floors = {}
         walls = {}
         obstacles = {}
@@ -146,6 +149,59 @@ function initWorld(levelIndex)
         -- callback for level completion
         world:setCallbacks(beginContact)
         game.currentMenuState = "playing"
+    elseif isUserLevel == true and currentUserLevel <= #userLevelData then
+        floors = {}
+        walls = {}
+        obstacles = {}
+        pen.ink.nonVectorizedDeposits = {}
+        pen.ink.vectorizedDeposits = {}
+
+        local level = userLevelData[levelIndex]
+        levelSize.x = 1920
+        levelSize.y = 1080
+        local scaleFactor = 1
+        love.physics.setMeter(1)
+        world = love.physics.newWorld(level.gravityX, level.gravityY, true)
+
+        -- initialize player
+        ballSkin = love.graphics.newImage(level.ballSkin or "DR.Paint_Saved_Image_32.png")
+        player.character = level.playerCharacter
+        player.character.body = love.physics.newBody(world, player.character.x, player.character.y, "dynamic")
+        player.character.body:setMass(player.character.mass)
+        player.character.shape = love.physics.newCircleShape(player.character.radius)
+        player.fixture = love.physics.newFixture(player.character.body, player.character.shape)
+        player.fixture:setFriction(player.character.friction)
+
+        -- initialize floors
+        for i, floorData in ipairs(level.floors) do
+            floors[i] = {}
+            floors[i].colour = floorData.colour
+            floors[i].body = love.physics.newBody(world, floorData.x, floorData.y, "static")
+            floors[i].shape = love.physics.newRectangleShape(floorData.width, floorData.height)
+            floors[i].fixture = love.physics.newFixture(floors[i].body, floors[i].shape)
+            floors[i].fixture:setFriction(floorData.friction)
+        end
+
+        -- initialize walls
+        for i, wallData in ipairs(level.walls) do
+            walls[i] = {}
+            walls[i].colour = wallData.colour
+            walls[i].body = love.physics.newBody(world, wallData.x, wallData.y, "static")
+            walls[i].shape = love.physics.newRectangleShape(wallData.width, wallData.height)
+            walls[i].fixture = love.physics.newFixture(walls[i].body, walls[i].shape)
+        end
+
+        -- now the obstacles
+        for index, obs in pairs(level.obstacles) do
+            obstacles[index] = {}
+            obstacles[index].colour = obs.colour
+            obstacles[index].body = love.physics.newBody(world, obs.x, obs.y, obs.type)
+            obstacles[index].shape = love.physics.newRectangleShape(obs.width, obs.height)
+            obstacles[index].fixture = love.physics.newFixture(obstacles[index].body, obstacles[index].shape)
+            obstacles[index].fixture:setFriction(0.25)
+        end
+        -- callback for level completion
+        world:setCallbacks(beginContact)
     else
         game.currentLevel = #levelsData
         initWorld(game.currentLevel)
@@ -165,8 +221,11 @@ function love.mousepressed(x, y, button)
             x, y = mousePos()
             table.insert(pen.ink.nonVectorizedDeposits, { xo = x, yo = y, xt = nil, yt = nil })
         end
-    elseif game.currentMenuState == "mainMenu" then
     end
+end
+
+function createNewLevel()
+
 end
 
 function love.mousereleased(x, y, button)
@@ -179,15 +238,13 @@ function love.mousereleased(x, y, button)
             end
             createPhysicsFromPath()
         end
-    elseif game.currentMenuState == "mainMenu" then
     end
     if game.currentMenuState == "editing" then
         -- Translate mouse position to world position based on camera
         x, y = mousePos()
-        
-        if button == 1 and x > 500 then
-            local newFloor = { x = x, y = y, width = 100, height = 20, colour = {1, 0, 0} }
-            table.insert(levelData[1].floors, newFloor)
+
+        if button == 1 and x > 250 then
+            addObject(currentObject, x, y)
         end
     end
 end
@@ -286,7 +343,7 @@ function updateUI(dt)
         end
         suit.layout:row(200, 15)
         if suit.Button("Start Editing", suit.layout:row(menuItemWidth, menuItemHeight)).hit then
-            levelData = {[1] = {floors = {}, walls = {}, obstacles = {}}}
+            levelData = { [1] = { floors = {}, walls = {}, obstacles = {} } }
             game.currentMenuState = "editing"
         end
         suit.layout:row(200, 15)
@@ -316,7 +373,7 @@ function updateUI(dt)
         suit.layout:row(200, 15)
         if suit.Button("Quit to Main Menu", suit.layout:row(menuItemWidth, menuItemHeight)).hit then
             game.currentMenuState = "mainMenu"
-        world = nil
+            world = nil
         end
         suit.layout:row(200, 15)
         if suit.Button("Quit to Desktop", suit.layout:row(menuItemWidth, menuItemHeight)).hit then
@@ -332,17 +389,17 @@ function updateUI(dt)
 
         -- Add button to place a floor
         if suit.Button("Add Floor", suit.layout:row(menuItemWidth, menuItemHeight)).hit then
-            addObject("floor")
+            currentObject = "floor"
         end
 
         -- Add button to place a wall
         if suit.Button("Add Wall", suit.layout:row(menuItemWidth, menuItemHeight)).hit then
-            addObject("wall")
+            currentObject = "wall"
         end
 
         -- Add button to place an obstacle
         if suit.Button("Add Obstacle", suit.layout:row(menuItemWidth, menuItemHeight)).hit then
-            addObject("obstacle")
+            currentObject = "obstacle"
         end
 
         -- Properties panel for selected object
@@ -351,54 +408,87 @@ function updateUI(dt)
             suit.Label("Change Color", suit.layout:row(menuItemWidth, menuItemHeight))
             suit.layout:row(menuItemWidth, 10)
             if suit.Button("Set Color", suit.layout:row(menuItemWidth, menuItemHeight)).hit then
-                changeObjectColor(selectedObject)  -- Function to open color picker
+                changeObjectColor(selectedObject) -- Function to open color picker
             end
 
             -- Friction input
             --suit.Label("Friction: " .. selectedObject.friction, suit.layout:row(menuItemWidth, menuItemHeight))
             --selectedObject.friction = suit.Slider(selectedObject.friction, 0, 1, suit.layout:row(menuItemWidth, menuItemHeight))
 
-            -- Static/Dynamic toggle
-            suit.Label("Is Static?", suit.layout:row(menuItemWidth, menuItemHeight))
             if suit.Button(selectedObject.isStatic and "Dynamic" or "Static", suit.layout:row(menuItemWidth, menuItemHeight)).hit then
                 selectedObject.isStatic = not selectedObject.isStatic
             end
+
+            if suit.Button("Pause", suit.layout:row(menuItemWidth, menuItemHeight)).hit then
+                game.currentMenuState = "editorPauseMenu"
+            end
+        end
+    end
+
+    if game.currentMenuState == "editorPauseMenu" then
+        local menuItemWidth = 200
+        local menuItemHeight = 30
+        suit.layout:reset(getScreenCenterX() - (menuItemWidth / 2), getScreenCenterY() - (menuItemHeight / 2))
+
+        if suit.Button("Resume Editing", suit.layout:row(menuItemWidth, menuItemHeight)).hit then
+            game.currentMenuState = "playing"
+        end
+        suit.layout:row(200, 15)
+        if suit.Button("Test Level", suit.layout:row(menuItemWidth, menuItemHeight)).hit then
+            initWorld(true, currentUserLevel)
+            world = nil
+        end
+        suit.layout:row(200, 15)
+        if suit.Button("Quit to Main Menu", suit.layout:row(menuItemWidth, menuItemHeight)).hit then
+            game.currentMenuState = "mainMenu"
         end
     end
 end
 
 -- Function to add objects dynamically to the level
-function addObject(type)
+function addObject(type, x, y)
     local newObj
     if type == "floor" then
         newObj = {
-            x = 100, y = 100, width = 400, height = 50,
-            friction = 0.5, colour = {r = 102, g = 102, b = 102, a = 255},
+            x = x,
+            y = y,
+            width = 400,
+            height = 50,
+            friction = 0.5,
+            colour = { r = 102, g = 102, b = 102, a = 255 },
             isStatic = true
         }
-        table.insert(levelData[1].floors, newObj)
+        table.insert(userLevelData[currentUserLevel].floors, newObj)
     elseif type == "wall" then
         newObj = {
-            x = 1000, y = 100, width = 50, height = 500,
-            friction = 0.5, colour = {r = 102, g = 102, b = 102, a = 255},
+            x = x,
+            y = y,
+            width = 50,
+            height = 500,
+            friction = 0.5,
+            colour = { r = 102, g = 102, b = 102, a = 255 },
             isStatic = true
         }
-        table.insert(levelData[1].walls, newObj)
+        table.insert(userLevelData[currentUserLevel].walls, newObj)
     elseif type == "obstacle" then
         newObj = {
-            x = 500, y = 300, width = 60, height = 60,
-            friction = 0.25, colour = {r = 178.5, g = 178.5, b = 178.5, a = 255},
+            x = x,
+            y = y,
+            width = 60,
+            height = 60,
+            friction = 0.25,
+            colour = { r = 178.5, g = 178.5, b = 178.5, a = 255 },
             type = "static",
             isStatic = true
         }
-        table.insert(levelData[1].obstacles, newObj)
+        table.insert(userLevelData[currentUserLevel].obstacles, newObj)
     end
-    selectedObject = newObj  -- Automatically select the new object
+    selectedObject = newObj -- Automatically select the new object
 end
 
 -- Function to change the color of an object
 function changeObjectColor(obj)
-    obj.colour = {r = math.random(255), g = math.random(255), b = math.random(255), a = 255}
+    obj.colour = { r = math.random(1, 255), g = math.random(1, 255), b = math.random(1, 255), a = 255 }
 end
 
 function love.update(dt)
@@ -420,7 +510,7 @@ function love.update(dt)
             player.character.body:applyTorque(player.character.rotationalPower)
         end
         if keyDown("r") then
-            initWorld(game.currentLevel)
+            initWorld(false, game.currentLevel)
         end
 
         if love.mouse.isDown(1) then
@@ -443,7 +533,7 @@ end
 function beginContact(a, b, coll)
     if (a == player.fixture and b == flag.fixture) or (b == player.fixture and a == flag.fixture) then
         game.currentLevel = game.currentLevel + 1
-        initWorld(game.currentLevel)
+        initWorld(false, game.currentLevel)
     end
 end
 
@@ -511,26 +601,29 @@ function love.draw()
     if game.currentMenuState == "mainMenu" or game.currentMenuState == "pauseMenu" then
         love.graphics.draw(mainMenuBackground)
     end
-
     if game.currentMenuState == "editing" then
         -- Floors
-        for _, floor in ipairs(game.editor.objects.floors or {}) do
-            love.graphics.setColor(floor.colour)
+        if userLevelData[currentUserLevel] == nil or userLevelData[currentUserLevel].floors == nil then
+            goto noLayers
+        end
+        for _, floor in ipairs(userLevelData[currentUserLevel].floors) do
+            love.graphics.setColor(floor.colour.r / 255, floor.colour.g / 255, floor.colour.b / 255, floor.colour.a / 255)
             love.graphics.rectangle("fill", floor.x, floor.y, floor.width, floor.height)
         end
 
         -- Walls
-        for _, wall in ipairs(game.editor.objects.walls or {}) do
-            love.graphics.setColor(wall.colour)
+        for _, wall in ipairs(userLevelData[currentUserLevel].walls or {}) do
+            love.graphics.setColor(wall.colour.r / 255, wall.colour.g / 255, wall.colour.b / 255, wall.colour.a / 255)
             love.graphics.rectangle("fill", wall.x, wall.y, wall.width, wall.height)
         end
 
         -- Obstacles
-        for _, obstacle in ipairs(game.editor.objects.obstacles or {}) do
-            love.graphics.setColor(obstacle.colour)
+        for _, obstacle in ipairs(userLevelData[currentUserLevel].obstacles or {}) do
+            love.graphics.setColor(obstacle.colour.r / 255, obstacle.colour.g / 255, obstacle.colour.b / 255,
+                obstacle.colour.a / 255)
             love.graphics.rectangle("fill", obstacle.x, obstacle.y, obstacle.width, obstacle.height)
         end
-
+        ::noLayers::
         -- Reset color to white for UI
         love.graphics.setColor(1, 1, 1)
     end
