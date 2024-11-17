@@ -2,3 +2,7 @@
   from = "/admin/*"
   to = "/admin/index.html"
   status = 200
+  
+[build]
+  command = ""
+  publish = "docs"
