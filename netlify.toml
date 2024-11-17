@@ -1,7 +1,3 @@
-[build]
-  publish = "docs"
-  command = ""
-
 [[redirects]]
   from = "/admin/*"
   to = "/admin/index.html"
