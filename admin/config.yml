@@ -1,16 +1,16 @@
 backend:
-  name: github
-  repo: Ronnie-Reagan/Draw_the_Path
+  name: git-gateway
   branch: main
 
-media_folder: "images/uploads"
-public_folder: "/images/uploads"
+media_folder: "docs/images"
+public_folder: "/images"
 
 collections:
-  - name: "posts"
-    label: "Posts"
-    folder: "_posts"
+  - name: "pages"
+    label: "Pages"
+    folder: "docs"
     create: true
+    slug: "{{slug}}"
     fields:
-      - { name: "title", label: "Title", widget: "string" }
-      - { name: "body", label: "Body", widget: "markdown" }
+      - { label: "Title", name: "title", widget: "string" }
+      - { label: "Body", name: "body", widget: "markdown" }
